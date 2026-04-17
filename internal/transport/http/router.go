@@ -18,6 +18,7 @@ func NewRouter(taskHandler *httphandlers.TaskHandler, templateHandler *httphandl
 
 	api := router.PathPrefix("/api/v1").Subrouter()
 
+	api.HandleFunc("/tasks/generate/{date}", taskHandler.GenerateForDate).Methods(http.MethodPost)
 	api.HandleFunc("/tasks", taskHandler.Create).Methods(http.MethodPost)
 	api.HandleFunc("/tasks", taskHandler.List).Methods(http.MethodGet)
 	api.HandleFunc("/tasks/{id:[0-9]+}", taskHandler.GetByID).Methods(http.MethodGet)

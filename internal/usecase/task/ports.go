@@ -15,6 +15,7 @@ type Repository interface {
 	List(ctx context.Context) ([]taskdomain.Task, error)
 	ExistsByTemplateAndDate(ctx context.Context, templateID int64, date time.Time) (bool, error)
 	GetByDate(ctx context.Context, date time.Time) ([]taskdomain.Task, error)
+	CreateIfNotExists(ctx context.Context, task *taskdomain.Task) (*taskdomain.Task, error)
 }
 
 type Usecase interface {
@@ -24,6 +25,7 @@ type Usecase interface {
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context) ([]taskdomain.Task, error)
 	ListByDate(ctx context.Context, date time.Time) ([]taskdomain.Task, error)
+	GenerateTasksForDate(ctx context.Context, date time.Time) error
 }
 
 type CreateInput struct {

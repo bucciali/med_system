@@ -24,6 +24,51 @@ func normalizeDateUTC(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
+func (r *Repository) CreateIfNotExists(ctx context.Context, task *taskdomain.Task) (*taskdomain.Task, error) {
+	const q = `
+WITH ins AS (
+	INSERT INTO tasks (title, description, status, template_id, scheduled_for, created_at, updated_at)
+	VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+	ON CONFLICT (template_id, scheduled_for) DO NOTHING
+	RETURNING id, title, description, status, template_id, scheduled_for, created_at, updated_at
+)
+SELECT id, title, description, status, template_id, scheduled_for, created_at, updated_at
+FROM ins
+UNION ALL
+SELECT id, title, description, status, template_id, scheduled_for, created_at, updated_at
+FROM tasks
+WHERE template_id = $4 AND scheduled_for = $5
+LIMIT 1;
+`
+
+	var out taskdomain.Task
+	var templateID int64 // если у тебя в домене TemplateID *int64
+
+	err := r.pool.QueryRow(
+		ctx, q,
+		task.Title,
+		task.Description,
+		task.Status,
+		*task.TemplateID,
+		task.ScheduledFor,
+	).Scan(
+		&out.ID,
+		&out.Title,
+		&out.Description,
+		&out.Status,
+		&templateID,
+		&out.ScheduledFor,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out.TemplateID = &templateID
+	return &out, nil
+}
+
 func (r *Repository) GetByDate(ctx context.Context, date time.Time) ([]taskdomain.Task, error) {
 	date = normalizeDateUTC(date)
 

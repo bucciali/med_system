@@ -21,6 +21,27 @@ func NewTaskHandler(usecase taskusecase.Usecase) *TaskHandler {
 	return &TaskHandler{usecase: usecase}
 }
 
+func (h *TaskHandler) GenerateForDate(w http.ResponseWriter, r *http.Request) {
+	dateStr := mux.Vars(r)["date"] // формат: 2026-04-17
+	if dateStr == "" {
+		http.Error(w, "date is required", http.StatusBadRequest)
+		return
+	}
+
+	date, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		http.Error(w, "invalid date format, use YYYY-MM-DD", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.usecase.GenerateTasksForDate(r.Context(), date); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req taskMutationDTO
 	if err := decodeJSON(r, &req); err != nil {

@@ -3,7 +3,6 @@ package task
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -23,6 +22,34 @@ func NewService(repo Repository, templateRepo template.Repository) *Service {
 		templateRepo: templateRepo,
 		now:          func() time.Time { return time.Now().UTC() },
 	}
+}
+
+func (s *Service) GenerateTasksForDate(ctx context.Context, date time.Time) error {
+	date = normalizeDateUTC(date)
+
+	templates, err := s.templateRepo.GetAll(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, tpl := range templates {
+		if !shouldCreateTask(tpl, date) {
+			continue
+		}
+
+		_, err := s.repo.CreateIfNotExists(ctx, &taskdomain.Task{
+			Title:        tpl.Title,
+			Description:  tpl.Description,
+			Status:       taskdomain.StatusNew,
+			TemplateID:   &tpl.ID,
+			ScheduledFor: date,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func normalizeDateUTC(t time.Time) time.Time {
@@ -95,49 +122,6 @@ func shouldCreateTask(tpl template.Template, date time.Time) bool {
 
 func (s *Service) ListByDate(ctx context.Context, date time.Time) ([]taskdomain.Task, error) {
 	date = normalizeDateUTC(date)
-
-	templates, err := s.templateRepo.GetAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, tpl := range templates {
-		ok := shouldCreateTask(tpl, date)
-		log.Printf("tpl=%d type=%q interval=%d start=%s date=%s ok=%v",
-			tpl.ID,
-			tpl.RecurrenceType,
-			tpl.Interval,
-			tpl.StartDate.Format("2006-01-02"),
-			date.Format("2006-01-02"),
-			ok,
-		)
-		if !ok {
-			continue
-		}
-		if !shouldCreateTask(tpl, date) {
-			continue
-		}
-
-		exists, err := s.repo.ExistsByTemplateAndDate(ctx, tpl.ID, date)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			continue
-		}
-
-		_, err = s.repo.Create(ctx, &taskdomain.Task{
-			Title:        tpl.Title,
-			Description:  tpl.Description,
-			Status:       taskdomain.StatusNew,
-			TemplateID:   &tpl.ID,
-			ScheduledFor: date,
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return s.repo.GetByDate(ctx, date)
 }
 
