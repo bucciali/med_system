@@ -11,12 +11,14 @@ const (
 )
 
 type Task struct {
-	ID          int64     `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      Status    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           int64
+	Title        string
+	Description  string
+	Status       Status
+	TemplateID   *int64
+	ScheduledFor time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 func (s Status) Valid() bool {

@@ -3,22 +3,142 @@ package task
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	taskdomain "example.com/taskservice/internal/domain/task"
+	"example.com/taskservice/internal/usecase/template"
 )
 
 type Service struct {
-	repo Repository
-	now  func() time.Time
+	repo         Repository
+	templateRepo template.Repository
+	now          func() time.Time
 }
 
-func NewService(repo Repository) *Service {
+func NewService(repo Repository, templateRepo template.Repository) *Service {
 	return &Service{
-		repo: repo,
-		now:  func() time.Time { return time.Now().UTC() },
+		repo:         repo,
+		templateRepo: templateRepo,
+		now:          func() time.Time { return time.Now().UTC() },
 	}
+}
+
+func normalizeDateUTC(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+func sameDateUTC(a, b time.Time) bool {
+	ay, am, ad := a.UTC().Date()
+	by, bm, bd := b.UTC().Date()
+	return ay == by && am == bm && ad == bd
+}
+
+func containsInt(arr []int, v int) bool {
+	for _, x := range arr {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldCreateTask(tpl template.Template, date time.Time) bool {
+	date = normalizeDateUTC(date)
+	start := normalizeDateUTC(tpl.StartDate)
+
+	if date.Before(start) {
+		return false
+	}
+	if tpl.EndDate != nil {
+		end := normalizeDateUTC(*tpl.EndDate)
+		if date.After(end) {
+			return false
+		}
+	}
+
+	switch tpl.RecurrenceType {
+	case "daily":
+		interval := tpl.Interval
+		if interval <= 0 {
+			interval = 1
+		}
+		diffDays := int(date.Sub(start).Hours() / 24)
+		return diffDays%interval == 0
+
+	case "monthly":
+		return containsInt(tpl.DaysOfMonth, date.Day())
+
+	case "specific":
+		for _, d := range tpl.SpecificDates {
+			if sameDateUTC(d, date) {
+				return true
+			}
+		}
+		return false
+
+	case "monthly_parity":
+		if tpl.Parity == "odd" {
+			return date.Day()%2 == 1
+		}
+		if tpl.Parity == "even" {
+			return date.Day()%2 == 0
+		}
+		return false
+
+	default:
+		return false
+	}
+}
+
+func (s *Service) ListByDate(ctx context.Context, date time.Time) ([]taskdomain.Task, error) {
+	date = normalizeDateUTC(date)
+
+	templates, err := s.templateRepo.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, tpl := range templates {
+		ok := shouldCreateTask(tpl, date)
+		log.Printf("tpl=%d type=%q interval=%d start=%s date=%s ok=%v",
+			tpl.ID,
+			tpl.RecurrenceType,
+			tpl.Interval,
+			tpl.StartDate.Format("2006-01-02"),
+			date.Format("2006-01-02"),
+			ok,
+		)
+		if !ok {
+			continue
+		}
+		if !shouldCreateTask(tpl, date) {
+			continue
+		}
+
+		exists, err := s.repo.ExistsByTemplateAndDate(ctx, tpl.ID, date)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			continue
+		}
+
+		_, err = s.repo.Create(ctx, &taskdomain.Task{
+			Title:        tpl.Title,
+			Description:  tpl.Description,
+			Status:       taskdomain.StatusNew,
+			TemplateID:   &tpl.ID,
+			ScheduledFor: date,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return s.repo.GetByDate(ctx, date)
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*taskdomain.Task, error) {

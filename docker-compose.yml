@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: taskservice
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: Xoxland1337
     ports:
       - "5432:5432"
     healthcheck:
@@ -14,7 +14,22 @@ services:
       retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations/0001_create_tasks.up.sql:/docker-entrypoint-initdb.d/001_create_tasks.sql:ro
+      - ./migrations:/migrations
+      
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command:
+      [
+        "-path", "/migrations",
+        "-database",
+        "postgres://postgres:Xoxland1337@postgres:5432/taskservice?sslmode=disable",
+        "up"
+      ]
 
   app:
     build:
@@ -22,12 +37,14 @@ services:
       dockerfile: Dockerfile
     environment:
       HTTP_ADDR: :8080
-      DATABASE_DSN: postgres://postgres:postgres@postgres:5432/taskservice?sslmode=disable
+      DATABASE_DSN: postgres://postgres:Xoxland1337@postgres:5432/taskservice?sslmode=disable
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

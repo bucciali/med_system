@@ -16,6 +16,7 @@ import (
 	swaggerdocs "example.com/taskservice/internal/transport/http/docs"
 	httphandlers "example.com/taskservice/internal/transport/http/handlers"
 	"example.com/taskservice/internal/usecase/task"
+	"example.com/taskservice/internal/usecase/template"
 )
 
 func main() {
@@ -35,11 +36,14 @@ func main() {
 	}
 	defer pool.Close()
 
+	templateRepo := postgresrepo.NewTemplateRepo(pool)
+	templateUsecase := template.NewService(templateRepo)
+	templateHandler := httphandlers.NewTemplateHandler(templateUsecase)
 	taskRepo := postgresrepo.New(pool)
-	taskUsecase := task.NewService(taskRepo)
+	taskUsecase := task.NewService(taskRepo, templateRepo)
 	taskHandler := httphandlers.NewTaskHandler(taskUsecase)
 	docsHandler := swaggerdocs.NewHandler()
-	router := transporthttp.NewRouter(taskHandler, docsHandler)
+	router := transporthttp.NewRouter(taskHandler, templateHandler, docsHandler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,

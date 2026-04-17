@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,19 +19,77 @@ func New(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+func normalizeDateUTC(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+func (r *Repository) GetByDate(ctx context.Context, date time.Time) ([]taskdomain.Task, error) {
+	date = normalizeDateUTC(date)
+
+	query := `
+		SELECT id, title, description, status, created_at, updated_at
+		FROM tasks
+		WHERE scheduled_for = $1::date
+		ORDER BY id
+	`
+
+	rows, err := r.pool.Query(ctx, query, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []taskdomain.Task
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, *task)
+	}
+
+	return tasks, rows.Err()
+}
+
+func (r *Repository) ExistsByTemplateAndDate(ctx context.Context, templateID int64, date time.Time) (bool, error) {
+	date = normalizeDateUTC(date)
+
+	query := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM tasks
+			WHERE template_id = $1
+			  AND scheduled_for = $2::date
+		)
+	`
+
+	var exists bool
+	if err := r.pool.QueryRow(ctx, query, templateID, date).Scan(&exists); err != nil {
+		return false, err
+	}
+
+	return exists, nil
+}
 func (r *Repository) Create(ctx context.Context, task *taskdomain.Task) (*taskdomain.Task, error) {
 	const query = `
-		INSERT INTO tasks (title, description, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO tasks (title, description, status, template_id, scheduled_for)
+		VALUES ($1,$2,$3,$4,$5::date)
 		RETURNING id, title, description, status, created_at, updated_at
 	`
 
-	row := r.pool.QueryRow(ctx, query, task.Title, task.Description, task.Status, task.CreatedAt, task.UpdatedAt)
+	row := r.pool.QueryRow(ctx, query,
+		task.Title,
+		task.Description,
+		task.Status,
+		task.TemplateID,
+		normalizeDateUTC(task.ScheduledFor),
+	)
+
 	created, err := scanTask(row)
 	if err != nil {
 		return nil, err
 	}
-
 	return created, nil
 }
 
